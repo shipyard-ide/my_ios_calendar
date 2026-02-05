@@ -8,6 +8,64 @@
 import SwiftUI
 import Combine
 
+struct ConfettiPiece: Identifiable {
+    let id = UUID()
+    var x: CGFloat
+    var y: CGFloat
+    let color: Color
+    let rotation: Double
+    let scale: CGFloat
+}
+
+struct ConfettiView: View {
+    @Binding var isActive: Bool
+    @State private var pieces: [ConfettiPiece] = []
+    
+    private let colors: [Color] = [.red, .blue, .green, .yellow, .orange, .purple, .pink]
+    
+    var body: some View {
+        ZStack {
+            ForEach(pieces) { piece in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(piece.color)
+                    .frame(width: 10, height: 10)
+                    .scaleEffect(piece.scale)
+                    .rotationEffect(.degrees(piece.rotation))
+                    .position(x: piece.x, y: piece.y)
+            }
+        }
+        .onChange(of: isActive) { _, newValue in
+            if newValue {
+                startConfetti()
+            }
+        }
+    }
+    
+    private func startConfetti() {
+        let screenWidth = UIScreen.main.bounds.width
+        pieces = (0..<50).map { _ in
+            ConfettiPiece(
+                x: CGFloat.random(in: 0...screenWidth),
+                y: -20,
+                color: colors.randomElement()!,
+                rotation: Double.random(in: 0...360),
+                scale: CGFloat.random(in: 0.5...1.5)
+            )
+        }
+        
+        withAnimation(.easeOut(duration: 2.0)) {
+            for i in pieces.indices {
+                pieces[i].y = UIScreen.main.bounds.height + 50
+            }
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            pieces = []
+            isActive = false
+        }
+    }
+}
+
 struct CalendarEvent: Identifiable, Codable {
     let id: UUID
     var title: String
@@ -55,48 +113,56 @@ struct ContentView: View {
     @State private var selectedDate = Date()
     @State private var currentMonth = Date()
     @State private var showingAddEvent = false
+    @State private var showConfetti = false
     
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                CalendarHeader(currentMonth: $currentMonth)
-                
-                WeekdayHeader()
-                
-                CalendarGrid(
-                    currentMonth: currentMonth,
-                    selectedDate: $selectedDate,
-                    eventStore: eventStore
-                )
-                
-                Divider()
-                    .padding(.top, 8)
-                
-                EventListView(
-                    selectedDate: selectedDate,
-                    eventStore: eventStore
-                )
-            }
-            .navigationTitle("Calendar")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: { showingAddEvent = true }) {
-                        Image(systemName: "plus")
-                    }
+        ZStack {
+            NavigationStack {
+                VStack(spacing: 0) {
+                    CalendarHeader(currentMonth: $currentMonth)
+                    
+                    WeekdayHeader()
+                    
+                    CalendarGrid(
+                        currentMonth: currentMonth,
+                        selectedDate: $selectedDate,
+                        eventStore: eventStore
+                    )
+                    
+                    Divider()
+                        .padding(.top, 8)
+                    
+                    EventListView(
+                        selectedDate: selectedDate,
+                        eventStore: eventStore
+                    )
                 }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Today") {
-                        withAnimation {
-                            currentMonth = Date()
-                            selectedDate = Date()
+                .navigationTitle("Calendar")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: { showingAddEvent = true }) {
+                            Image(systemName: "plus")
+                        }
+                    }
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        Button("Today") {
+                            withAnimation {
+                                currentMonth = Date()
+                                selectedDate = Date()
+                            }
                         }
                     }
                 }
+                .sheet(isPresented: $showingAddEvent) {
+                    AddEventView(eventStore: eventStore, selectedDate: selectedDate, onEventAdded: {
+                        showConfetti = true
+                    })
+                }
             }
-            .sheet(isPresented: $showingAddEvent) {
-                AddEventView(eventStore: eventStore, selectedDate: selectedDate)
-            }
+            
+            ConfettiView(isActive: $showConfetti)
+                .allowsHitTesting(false)
         }
     }
 }
@@ -357,6 +423,7 @@ struct EventRow: View {
 struct AddEventView: View {
     @ObservedObject var eventStore: EventStore
     let selectedDate: Date
+    var onEventAdded: (() -> Void)?
     @Environment(\.dismiss) var dismiss
     
     @State private var title = ""
@@ -365,9 +432,10 @@ struct AddEventView: View {
     
     private let colors = ["blue", "red", "green", "orange", "purple", "pink"]
     
-    init(eventStore: EventStore, selectedDate: Date) {
+    init(eventStore: EventStore, selectedDate: Date, onEventAdded: (() -> Void)? = nil) {
         self.eventStore = eventStore
         self.selectedDate = selectedDate
+        self.onEventAdded = onEventAdded
         _eventDate = State(initialValue: selectedDate)
     }
     
@@ -408,6 +476,7 @@ struct AddEventView: View {
                         let event = CalendarEvent(title: title, date: eventDate, color: selectedColor)
                         eventStore.addEvent(event)
                         dismiss()
+                        onEventAdded?()
                     }
                     .disabled(title.isEmpty)
                 }
